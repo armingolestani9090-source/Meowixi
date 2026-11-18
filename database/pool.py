@@ -24,6 +24,9 @@ def _to_sqlite_sql(query: str, args: tuple = ()) -> tuple[str, tuple]:
     q = re.sub(r"::\w+", "", q)
     q = re.sub(r"\bILIKE\b", "LIKE", q, flags=re.IGNORECASE)
     q = re.sub(r"\bNOW\s*\(\s*\)", "datetime('now')", q, flags=re.IGNORECASE)
+    # PostgreSQL row locks / tips not supported by SQLite
+    q = re.sub(r"\bFOR\s+UPDATE\b", "", q, flags=re.IGNORECASE)
+    q = re.sub(r"\bFOR\s+SHARE\b", "", q, flags=re.IGNORECASE)
     new_args: list = []
 
     def repl(m):
