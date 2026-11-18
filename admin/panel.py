@@ -63,9 +63,8 @@ def nav():
     """منوی اصلی Owner — حداکثر ۶ دکمه."""
     return _kb([
         [("📊 وضعیت", "owner:status"), ("👥 مدیریت", "owner:mgmt")],
-        [("🎁 اقتصاد", "owner:economy"), ("⚙️ تنظیمات", "owner:settings_hub")],
-        [("🎃 رویداد", "owner:halloween")],
-        [("🔙 بستن", "owner:close")],
+        [("🎁 اقتصاد", "owner:economy"), ("📢 همگانی", "owner:broadcast")],
+        [("⚙️ تنظیمات", "owner:settings_hub"), ("🔙 بستن", "owner:close")],
     ])
 
 
@@ -799,6 +798,61 @@ async def handle_owner_callback(bot, callback, data: str):
             return
 
         # ========== BROADCAST ==========
+    
+        if action == "bc_no":
+            _pending.pop(user_id, None)
+            await _edit(msg, "❌ ارسال همگانی لغو شد.", nav())
+            return
+
+        if action == "bc_yes":
+            pending = _pending.get(user_id) or {}
+            if pending.get("action") != "bc_confirm":
+                await _edit(msg, "❌ پیش‌نمایش منقضی شده. دوباره همگانی را شروع کن.", broadcast_kb())
+                return
+            target = pending.get("bc_target") or "all"
+            body = pending.get("bc_text") or ""
+            if not body.strip():
+                _pending.pop(user_id, None)
+                await _edit(msg, "❌ متن خالی است.", broadcast_kb())
+                return
+            await _edit(msg, "⏳ در حال ارسال همگانی… لطفاً صبر کن.")
+            sent = failed = 0
+            destinations = []
+            try:
+                if target in ("users", "all"):
+                    for u in (await get_all_users() or []):
+                        destinations.append(("user", u["user_id"]))
+                if target in ("groups", "all"):
+                    for g in (await get_all_groups() or []):
+                        destinations.append(("group", g["chat_id"]))
+                if target == "admins":
+                    admins = await list_admins()
+                    ids = {int(a["user_id"]) for a in (admins or [])}
+                    ids.add(int(OWNER_ID))
+                    for aid in ids:
+                        destinations.append(("admin", aid))
+            except Exception as e:
+                _pending.pop(user_id, None)
+                await _edit(msg, f"❌ آماده‌سازی لیست گیرندگان ناموفق: `{e}`", nav())
+                return
+            for kind, dest in destinations:
+                try:
+                    msg_body = body
+                    if kind == "admin":
+                        msg_body = f"🛡 **Admin Broadcast**\n\n{body}"
+                    await bot.send_message(int(dest) if str(dest).lstrip("-").isdigit() else dest, msg_body)
+                    sent += 1
+                except Exception:
+                    failed += 1
+            await log_action(user_id, f"bc_{target}", result="ok", details={"sent": sent, "failed": failed})
+            _pending.pop(user_id, None)
+            await _edit(
+                msg,
+                f"✅ **گزارش پیام همگانی**\nهدف: `{target}`\nموفق: `{sent}`\nناموفق: `{failed}`",
+                nav(),
+            )
+            return
+
         if action == "broadcast":
             await _edit(
                 msg,
@@ -1337,9 +1391,11 @@ async def handle_owner_text(bot, message, user_id: int, text: str) -> bool:
                 f"هدف: {label}\n"
                 f"تعداد تقریبی: `{count}`\n"
                 f"محتوا:\n{text[:500]}\n\n"
-                f"برای ارسال بنویس: `تأیید`\n"
-                f"برای لغو: `لغو`",
-                components=back_nav(),
+                f"اگر مطمئن هستی دکمه تأیید را بزن.",
+                components=_kb([
+                    [("✅ تأیید ارسال", "owner:bc_yes"), ("❌ لغو", "owner:bc_no")],
+                    [("🔙 منوی Owner", "owner:home")],
+                ]),
             )
             return True
 
